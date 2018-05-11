@@ -1,8 +1,13 @@
 import argparse
 import sys
+import os
+import os.path
+import errno
 
 from html.parser import HTMLParser
 from urllib.request import urlopen
+from urllib.parse import urlparse
+from urllib.parse import urlsplit
 from os.path import isfile
 
 
@@ -15,6 +20,13 @@ class Engine(HTMLParser):
 
     def handle_starttag(self, tag, attributes):
         if tag not in self.alowed_tags:
+            if self.recording:
+                if tag == 'a':
+                    links = []
+                    for name, value in attributes:
+                        if name == "href":
+                            links.append('[{}]'.format(value))
+                    self.data.append(' '.join(links))
             return
         if self.recording:
             self.recording += 1
@@ -23,11 +35,13 @@ class Engine(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag in self.alowed_tags and self.recording:
-          self.recording -= 1
+            self.recording -= 1
+        if tag in self.alowed_tags and self.recording == 0:
+            self.data.append('\n\n')
 
     def handle_data(self, data):
         if self.recording:
-            self.data.append(data.strip())
+            self.data.append(data)
         return self.data
 
 
@@ -53,7 +67,7 @@ def translate(source_data):
     parser = Engine()
     parser.feed(source_data)
 
-    return ' '.join(parser.data)
+    return ''.join(parser.data)
 
 
 if __name__ == "__main__":
@@ -61,7 +75,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.input.startswith("http://") or args.input.startswith("https://"):
-        source_data = urlopen(args.input).read().decode(args.encoding)
+        source_data = urlopen(args.input).read().decode(
+            args.encoding, "replace")
     else:
         print("Ошибка: Заданный ресурс недоступен '{}'.\n".format(args.input))
         parser.print_help()
@@ -71,7 +86,22 @@ if __name__ == "__main__":
 
     text = result
     if args.output:
-        with open(args.output, 'w') as open_file:
+        with open(args.output, encoding='utf-8', mode='w') as open_file:
             open_file.write(text)
     else:
-        print(text)
+        o = urlsplit(args.input)
+        path = './{}{}'.format(o.netloc, o.path)
+        if os.path.basename(path) != '':
+            filename = os.path.splitext(path)[0] + '.txt'
+        else:
+            filename = path.rsplit('/', 1)[0] + '.txt'
+
+        if not os.path.exists(os.path.dirname(filename)):
+            try:
+                os.makedirs(os.path.dirname(filename))
+            except OSError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+
+        with open(filename, encoding='utf-8', mode='w') as open_file:
+            open_file.write(text)
